@@ -77,6 +77,20 @@ The steward is the conservation enforcement layer in **SuperInstance**. It direc
 | Hardin, Garrett. "The Tragedy of the Commons," *Science*, 162(3859), 1968.
 | Ostrom, Elinor. *Governing the Commons*, Cambridge UP, 1990 — resource stewardship.
 
+
+
+## Complexity Summary
+
+| Operation | Time | Notes |
+|---|---|---|
+| Budget creation | O(1) | HashMap insert |
+| Allocation | O(1) | Amount + classification |
+| Audit query (by resource) | O(n) | Filter audit entries |
+| Audit query (by time range) | O(n) | Linear scan |
+| Sustainability computation | O(b) for b budgets | Aggregate statistics |
+
+The steward adds O(1) overhead per resource transaction, enabling real-time budget enforcement without measurable performance impact on fleet operations.
+
 ## License
 
 MIT
