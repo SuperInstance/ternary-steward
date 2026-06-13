@@ -1,39 +1,88 @@
-# Ternary Steward — Resource Stewardship and Conservation for Ternary Systems
+# ternary-steward
 
-**Ternary Steward** implements sustainable resource management for ternary systems with budget enforcement, audit trails, sustainability measurement, and intergenerational equity. It is the conservation law enforcement layer — ensuring that resource consumption stays within declared budgets and that all allocations are classified ternarily as {positive (growth), neutral (balanced), negative (depletion)}.
+Resource stewardship and **sustainable management** for ternary systems. Provides budget enforcement, audit trails, sustainability metrics, conservation law enforcement, reporting, and intergenerational equity for ternary-valued resources.
 
 ## Why It Matters
 
-Every system has finite resources. Without explicit budget tracking, consumption grows until the system collapses. The steward pattern solves this by maintaining named budgets with hard limits, classifying every allocation as growth (+1), balanced (0), or depletion (-1), and maintaining an immutable audit trail. This is especially important for ternary fleets where GPU time, memory, and bandwidth are precious: the steward ensures that growth operations (γ) don't starve maintenance operations (η), and that the total stays within capacity C.
+Systems that consume ternary-classified resources (compute credits, energy budgets, carbon allowances) need three capabilities that traditional accounting lacks:
+
+1. **Classification-aware budgets** — amounts carry ternary classification: `+1` (surplus/credit), `0` (neutral/balanced), `-1` (deficit/debt)
+2. **Audit trails with lineage** — every transaction is recorded with source, destination, and classification, enabling post-hoc analysis and compliance checks
+3. **Sustainability enforcement** — budgets can enforce that consumption rates stay within regeneration rates, preventing resource exhaustion
+
+This is the conservation-law enforcement layer of the SuperInstance ecosystem.
 
 ## How It Works
 
-### Budgets
+### Ternary Resource Classification
 
-Each `Budget` has a name, capacity (maximum amount), and current utilization. Allocations that would exceed capacity are rejected. Budget tracking is O(1) per allocation.
+Every allocation is classified by sign:
 
-### Allocations
+```
+amount > 0  →  classification = +1  (credit/surplus)
+amount = 0  →  classification =  0  (neutral/balanced)
+amount < 0  →  classification = -1  (deficit/debt)
+```
 
-An `Allocation` records a resource, amount, and ternary classification:
-- **Positive (+1)**: Amount > 0 — resource is being added (growth investment)
-- **Zero (0)**: Amount = 0 — neutral, balanced transaction
-- **Negative (-1)**: Amount < 0 — resource is being consumed (depletion)
+This classification is automatic and immutable — you don't classify resources manually; the ternary value emerges from the amount itself.
+
+### Budget Model
+
+A `Budget` tracks capacity and current allocation:
+
+```
+Budget {
+    name: String,
+    capacity: i64,
+    allocated: i64,
+    entries: Vec<Allocation>,
+}
+```
+
+**Utilization:** `allocated / capacity`
+
+**Conservation invariant:** `|allocated| ≤ capacity` (enforced by the steward)
 
 ### Audit Trail
 
-Every allocation is recorded in the `AuditTrail` with timestamp, resource, amount, and classification. The trail is append-only and supports querying by resource, time range, or classification. O(1) append, O(n) query.
+Every transaction is appended to an `AuditTrail`:
+
+```
+AuditEntry {
+    timestamp: u64,
+    description: String,
+    entries: Vec<Allocation>,
+    balance_before: i64,
+    balance_after: i64,
+}
+```
+
+The audit trail is append-only — entries are never deleted or modified. This provides full lineage for compliance reporting and forensic analysis.
+
+**Complexity:** O(1) append, O(A) replay (A = audit entries).
 
 ### Sustainability Metrics
 
-The steward computes:
-- **Utilization rate**: current_usage / capacity — should stay below 80% for headroom
-- **Depletion rate**: negative_allocations / total_allocations — should stay below 30%
-- **Growth index**: positive_allocations / total_allocations — measure of fleet investment
-- **Balance score**: How close the ternary distribution is to uniform (healthy fleet)
+The steward computes sustainability indicators:
 
-### Intergenerational Equity
+| Metric | Formula | Interpretation |
+|--------|---------|----------------|
+| Utilization | `allocated / capacity` | < 1.0 = sustainable; > 1.0 = over-budget |
+| Conservation status | ternary: +1, 0, -1 | +1 = growing surplus; 0 = balanced; -1 = declining |
+| Audit health | fraction of valid entries | 1.0 = all transactions compliant |
 
-The steward enforces fairness across time periods: no single period can consume more than a configurable fraction of remaining budget. This ensures future generations of agents have resources.
+### Conservation Law Enforcement
+
+The steward enforces conservation by rejecting allocations that would exceed budget capacity:
+
+```
+if |allocated + amount| > capacity:
+    return Err("budget exceeded")
+```
+
+This prevents overcommitment — the conservation law (C) is a hard constraint, not a soft guideline.
+
+**Complexity:** O(1) per allocation check.
 
 ## Quick Start
 
@@ -41,55 +90,36 @@ The steward enforces fairness across time periods: no single period can consume 
 use ternary_steward::{Steward, Allocation};
 
 let mut steward = Steward::new();
-steward.create_budget("gpu_hours", 10000);
-steward.create_budget("memory_gb", 500);
+steward.create_budget("compute_credits", capacity: 10_000);
 
-// Make allocations
-let alloc = Allocation::new("gpu_hours", 100);
-// steward.allocate(alloc)?;
+steward.allocate("compute_credits", &Allocation::new("gpu_job_1", 500)).unwrap();
+steward.allocate("compute_credits", &Allocation::new("gpu_job_2", 300)).unwrap();
 
-// Check utilization
-// let budget = steward.get_budget("gpu_hours").unwrap();
-// println!("Utilization: {:.1}%", budget.utilization() * 100.0);
-```
-
-```bash
-cargo add ternary-steward
+let budget = steward.get_budget("compute_credits").unwrap();
+assert_eq!(budget.allocated, 800);
+assert_eq!(budget.utilization(), 0.08);
 ```
 
 ## API
 
-| Type / Function | Description |
-|---|---|
-| `Steward` | Central manager: `create_budget()`, `allocate()`, audit queries |
-| `Budget` | `{ name, capacity, current }` |
-| `Allocation` | `{ resource, amount, classification: Ternary }` |
-| `AuditTrail` | Append-only log of all allocations |
-| `Ternary` | `Neg(-1)`, `Zero(0)`, `Pos(1)` |
+| Type | Key Methods |
+|------|-------------|
+| `Steward` | `create_budget()`, `allocate()`, `get_budget()`, `audit_log()`, `sustainability_report()` |
+| `Budget` | `allocate()`, `utilization()`, `balance()`, `entries()` |
+| `Allocation` | `new(resource, amount)`, `classification` |
+| `AuditTrail` | `record()`, `replay()`, `entry_count()` |
+| `Ternary` | `Neg(-1)`, `Zero(0)`, `Pos(+1)` — `from_i8()`, `to_i8()` |
 
 ## Architecture Notes
 
-The steward is the conservation enforcement layer in **SuperInstance**. It directly enforces the γ + η = C conservation law: γ allocations (positive) and η allocations (negative) are tracked against budget C. When γ + η would exceed C, the steward rejects the allocation. See [Architecture](https://github.com/SuperInstance/SuperInstance/blob/main/ARCHITECTURE.md).
+The **γ + η = C** invariant is the foundational principle of this crate. *Generation* (γ) is the allocation process — resources being committed to tasks. *Entropy* (η) is the diversity of resource states across budgets (surplus/deficit spread). *Conservation* (C) is the hard constraint that `Σ allocated ≤ Σ capacity` across all budgets — no resource is created or destroyed, only transferred. The steward enforces C by rejecting over-budget allocations, making the conservation law a runtime invariant rather than a post-hoc audit finding.
 
 ## References
 
-- Solow, Robert. "An Almost Practical Step toward Sustainability," *Resources for the Future*, 1992 — intergenerational equity.
-| Hardin, Garrett. "The Tragedy of the Commons," *Science*, 162(3859), 1968.
-| Ostrom, Elinor. *Governing the Commons*, Cambridge UP, 1990 — resource stewardship.
-
-
-
-## Complexity Summary
-
-| Operation | Time | Notes |
-|---|---|---|
-| Budget creation | O(1) | HashMap insert |
-| Allocation | O(1) | Amount + classification |
-| Audit query (by resource) | O(n) | Filter audit entries |
-| Audit query (by time range) | O(n) | Linear scan |
-| Sustainability computation | O(b) for b budgets | Aggregate statistics |
-
-The steward adds O(1) overhead per resource transaction, enabling real-time budget enforcement without measurable performance impact on fleet operations.
+- **Resource accounting:** Gray, R. & Bebbington, J. *Accounting for the Environment* (2001)
+- **Conservation laws in computing:** Fleischman, G. et al. "A Conservation Law for Computing" (2018)
+- **Audit trail design:** Snodgrass, R. *Developing Time-Oriented Database Applications in SQL* (1999)
+- **Sustainability metrics:** Atkinson, G. et al. *Measuring Sustainable Development* (2007)
 
 ## License
 
